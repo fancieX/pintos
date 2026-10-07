@@ -133,8 +133,61 @@ pintos_init (void)
     /* Run actions specified on kernel command line. */
     run_actions (argv);
   } else {
-    // TODO: no command line passed to kernel. Run interactively 
+    /* --- MINISHELL IMPLEMENTATION --- */
+  char cmd[128]; 
+  int idx;  
+  
+  // --- BANNER CODE STARTS HERE ---
+    printf("\n");
+    printf("  _____  _    _   _  ____ ___ _____ \n");
+    printf(" |  ___|/ \\  | \\ | |/ ___|_ _| ____|\n");
+    printf(" | |_  / _ \\ |  \\| | |    | ||  _|  \n");
+    printf(" |  _|/ ___ \\| |\\  | |___ | || |___ \n");
+    printf(" |_| /_/   \\_\\_| \\_|\\____|___|_____|\n");
+    printf("\n");
+    printf("=======================================\n");
+    printf(" Welcome to the Kernel-Level Minishell \n");
+    printf("=======================================\n\n");
+    // --- BANNER CODE ENDS HERE ---
+  while (1) {
+      printf("CS2043> ");
+      idx = 0;
+      
+      // Read input keystrokes
+      while (1) {
+          uint8_t c = input_getc(); 
+          
+          if (c == '\r' || c == '\n') { 
+              printf("\n");
+              cmd[idx] = '\0'; 
+              break;
+          } 
+          else if (c == '\b' && idx > 0) { 
+              idx--;
+              printf("\b \b"); 
+          } 
+          else if (c >= 32 && c <= 126 && idx < 127) { 
+              cmd[idx++] = c;
+              putchar(c); 
+          }
+      }
+      
+      // Parse and execute commands
+      if (strlen(cmd) == 0) continue; 
+      else if (strcmp(cmd, "whoami") == 0) printf("Nirmana Pansilu Liyanagamage - 240390H\n"); 
+      else if (strcmp(cmd, "shutdown") == 0) shutdown_power_off(); 
+      else if (strcmp(cmd, "time") == 0) printf("Seconds since epoch: %lu\n", rtc_get_time()); 
+      else if (strcmp(cmd, "ram") == 0) printf("Total RAM: %d kB\n", (init_ram_pages * 4096) / 1024);
+      else if (strcmp(cmd, "thread") == 0) thread_print_stats(); 
+      else if (strcmp(cmd, "priority") == 0) printf("Current thread priority: %d\n", thread_get_priority());
+      else if (strcmp(cmd, "exit") == 0) {
+          printf("Exiting interactive shell... Bye!\n");
+          break; 
+      } 
+      else printf("Unknown command: %s\n", cmd);
   }
+  /* --- END MINISHELL IMPLEMENTATION --- */
+}
 
   /* Finish up. */
   shutdown ();

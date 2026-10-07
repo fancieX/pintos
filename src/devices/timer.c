@@ -8,6 +8,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
   
+static struct list sleep_list;
 /* See [8254] for hardware details of the 8254 timer chip. */
 
 #if TIMER_FREQ < 19
@@ -36,6 +37,8 @@ void
 timer_init (void) 
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
+  /* ADD THIS: Initialize the sleep list when the timer boots */
+  list_init (&sleep_list);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
@@ -86,14 +89,39 @@ timer_elapsed (int64_t then)
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
+
+static bool
+sleep_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *ta = list_entry (a, struct thread, elem);
+  struct thread *tb = list_entry (b, struct thread, elem);
+  return ta->wake_up_ticks < tb->wake_up_ticks;
+} 
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
+  if (ticks <= 0) {
+      return;
+  }
 
+  int64_t start = timer_ticks ();
+  struct thread *curr = thread_current ();
+  
+  /* Ensure interrupts are currently enabled before we manipulate them */
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+
+  /* Disable interrupts to safely access the global sleep_list */
+  enum intr_level old_level = intr_disable ();
+  
+  /* Calculate the exact tick when this thread should wake up */
+  curr->wake_up_ticks = start + ticks;
+  
+  /* Push the thread to our waiting room and block it from the CPU */
+  list_insert_ordered (&sleep_list, &curr->elem, sleep_less, NULL);
+  thread_block ();
+  
+  /* Restore the previous interrupt level */
+  intr_set_level (old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +200,41 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  /* --- ADD THIS LOGIC --- */
+  struct list_elem *e = list_begin (&sleep_list);
+  
+  /* Iterate through every thread currently sleeping */
+  while (e != list_end (&sleep_list)) {
+      struct thread *t = list_entry (e, struct thread, elem);
+      
+      /* Has the current time passed the thread's alarm? */
+      if (ticks >= t->wake_up_ticks) {
+          /* Remove it from the sleep list and step 'e' to the next element */
+          e = list_remove (e); 
+          /* Put the thread back in the CPU's ready queue */
+          thread_unblock (t); 
+      } else {
+          break;
+      }
+  }
+
+  if (thread_mlfqs) {
+      /* Rule 1: Every tick */
+      mlfqs_increment_recent_cpu ();
+      
+      /* Rule 2: Every 1 second (TIMER_FREQ ticks) */
+      if (ticks % TIMER_FREQ == 0) {
+          mlfqs_calculate_load_avg ();
+          mlfqs_recalculate_recent_cpu_all ();
+      }
+      
+      /* Rule 3: Every 4th tick */
+      if (ticks % 4 == 0) {
+          mlfqs_recalculate_priority_all ();
+      }
+  }
+  /* ---------------------- */
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

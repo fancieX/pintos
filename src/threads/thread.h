@@ -80,6 +80,9 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+   
+struct lock;
+
 struct thread
   {
     /* Owned by thread.c. */
@@ -92,6 +95,18 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+    
+    /* ADD THIS: The time (in ticks) when this thread should wake up */
+    int64_t wake_up_ticks;
+    
+    int base_priority;                  /* Original priority before donations */
+    struct list locks;                  /* List of locks held by this thread */
+    struct lock *lock_waiting;          /* The lock this thread is blocked on */
+
+    /* --- ADD FOR MLFQS --- */
+    int nice;                           /* Niceness value (-20 to 20) */
+    int recent_cpu;                     /* Recent CPU usage (Fixed-point) */
+    /* --------------------- */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -137,5 +152,13 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+/* MLFQS Functions */
+void mlfqs_calculate_priority (struct thread *t);
+void mlfqs_calculate_recent_cpu (struct thread *t);
+void mlfqs_calculate_load_avg (void);
+void mlfqs_increment_recent_cpu (void);
+void mlfqs_recalculate_recent_cpu_all (void);
+void mlfqs_recalculate_priority_all (void);
 
 #endif /* threads/thread.h */
