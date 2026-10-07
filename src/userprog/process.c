@@ -61,7 +61,47 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+  // Helper function to push arguments onto the x86 stack
+  void push_arguments(char *cmd_line, void **esp) {
+      int argc = 0;
+      char *token, *save_ptr;
+      char *argv[128]; // Array to hold string addresses (128 is a safe limit)
 
+      // 1. Push actual strings onto the stack (right-to-left conventionally, but order doesn't strictly matter here)
+      for (token = strtok_r(cmd_line, " ", &save_ptr); token != NULL; 
+          token = strtok_r(NULL, " ", &save_ptr)) {
+          
+          *esp -= strlen(token) + 1; // Move stack pointer down (stack grows downward)
+          strlcpy(*esp, token, strlen(token) + 1); // Copy string to stack
+          argv[argc++] = *esp; // Save the address of the string
+      }
+
+      // 2. Word-align the stack pointer (round down to nearest multiple of 4)
+      *esp = (void *)((uint32_t)(*esp) & ~3);
+
+      // 3. Push null sentinel (argv[argc] must be NULL per C standard)
+      *esp -= sizeof(char *);
+      *((char **)*esp) = NULL;
+
+      // 4. Push addresses of the strings (argv elements) in reverse order (right-to-left)
+      for (int i = argc - 1; i >= 0; i--) {
+          *esp -= sizeof(char *);
+          *((char **)*esp) = argv[i];
+      }
+
+      // 5. Push address of argv array (the current stack pointer)
+      char **argv_addr = *esp;
+      *esp -= sizeof(char **);
+      *((char ***)*esp) = argv_addr;
+
+      // 6. Push argc
+      *esp -= sizeof(int);
+      *((int *)*esp) = argc;
+
+      // 7. Push fake return address (required by 80x86 calling convention)
+      *esp -= sizeof(void *);
+      *((void **)*esp) = NULL;
+  }
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
