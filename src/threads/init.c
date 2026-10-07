@@ -221,21 +221,21 @@ paging_init (void)
   pd = init_page_dir = palloc_get_page (PAL_ASSERT | PAL_ZERO);
   pt = NULL;
   for (page = 0; page < init_ram_pages; page++)
-  {
-    uintptr_t paddr = page * PGSIZE;
-    char *vaddr = ptov (paddr);
-    size_t pde_idx = pd_no (vaddr);
-    size_t pte_idx = pt_no (vaddr);
-    bool in_kernel_text = &_start <= vaddr && vaddr < &_end_kernel_text;
+    {
+      uintptr_t paddr = page * PGSIZE;
+      char *vaddr = ptov (paddr);
+      size_t pde_idx = pd_no (vaddr);
+      size_t pte_idx = pt_no (vaddr);
+      bool in_kernel_text = &_start <= vaddr && vaddr < &_end_kernel_text;
 
-    if (pd[pde_idx] == 0)
-      {
-        pt = palloc_get_page (PAL_ASSERT | PAL_ZERO);
-        pd[pde_idx] = pde_create (pt);
-      }
+      if (pd[pde_idx] == 0)
+        {
+          pt = palloc_get_page (PAL_ASSERT | PAL_ZERO);
+          pd[pde_idx] = pde_create (pt);
+        }
 
-    pt[pte_idx] = pte_create_kernel (vaddr, !in_kernel_text);
-  }
+      pt[pte_idx] = pte_create_kernel (vaddr, !in_kernel_text);
+    }
 
   /* Store the physical address of the page directory into CR3
      aka PDBR (page directory base register).  This activates our

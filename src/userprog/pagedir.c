@@ -2,7 +2,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
-#include <stdio.h>
 #include "threads/init.h"
 #include "threads/pte.h"
 #include "threads/palloc.h"
@@ -19,15 +18,7 @@ pagedir_create (void)
 {
   uint32_t *pd = palloc_get_page (0);
   if (pd != NULL)
-    {
-      /* 1. Clear the user space portion (entries 0 to 767) */
-      memset (pd, 0, pd_no (PHYS_BASE) * sizeof (uint32_t));
-
-      /* 2. Copy only the kernel mapping portion (entries 768 to 1023) */
-      memcpy (pd + pd_no (PHYS_BASE), 
-              init_page_dir + pd_no (PHYS_BASE), 
-              (1024 - pd_no (PHYS_BASE)) * sizeof (uint32_t));
-    }
+    memcpy (pd, init_page_dir, PGSIZE);
   return pd;
 }
 
@@ -75,14 +66,14 @@ lookup_page (uint32_t *pd, const void *vaddr, bool create)
   /* Check for a page table for VADDR.
      If one is missing, create one if requested. */
   pde = pd + pd_no (vaddr);
-  if ((*pde & PTE_P) == 0) 
+  if (*pde == 0) 
     {
       if (create)
         {
           pt = palloc_get_page (PAL_ZERO);
           if (pt == NULL) 
             return NULL; 
-
+      
           *pde = pde_create (pt);
         }
       else
@@ -105,28 +96,26 @@ lookup_page (uint32_t *pd, const void *vaddr, bool create)
    Returns true if successful, false if memory allocation
    failed. */
 bool
-pagedir_set_page (uint32_t *pd, void *upage, void *kpage, bool rw)
+pagedir_set_page (uint32_t *pd, void *upage, void *kpage, bool writable)
 {
   uint32_t *pte;
 
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (pg_ofs (kpage) == 0);
   ASSERT (is_user_vaddr (upage));
-  ASSERT (vtop (kpage) >> T < init_ram_pages);
+  ASSERT (vtop (kpage) >> PTSHIFT < init_ram_pages);
   ASSERT (pd != init_page_dir);
 
   pte = lookup_page (pd, upage, true);
+
   if (pte != NULL) 
     {
       ASSERT ((*pte & PTE_P) == 0);
-      *pte = pte_create_user (kpage, rw);
+      *pte = pte_create_user (kpage, writable);
       return true;
     }
   else
-    {
-      printf ("DEBUG: pagedir_set_page: lookup_page returned NULL for upage %p\n", upage);
-      return false;
-    }
+    return false;
 }
 
 /* Looks up the physical address that corresponds to user virtual
@@ -139,10 +128,10 @@ pagedir_get_page (uint32_t *pd, const void *uaddr)
   uint32_t *pte;
 
   ASSERT (is_user_vaddr (uaddr));
-
+  
   pte = lookup_page (pd, uaddr, false);
   if (pte != NULL && (*pte & PTE_P) != 0)
-    return pte_get_page (*pte);
+    return pte_get_page (*pte) + pg_ofs (uaddr);
   else
     return NULL;
 }
