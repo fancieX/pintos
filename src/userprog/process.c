@@ -90,27 +90,32 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
+  /* Extract just the executable name to pass to load() */
+  char *save_ptr;
+  char fn_copy[64];
+  strlcpy (fn_copy, file_name, sizeof fn_copy);
+  char *prog_name = strtok_r (fn_copy, " ", &save_ptr);
+
+  /* Initialize interrupt frame and load executable */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  
-  // Load the executable
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (prog_name, &if_.eip, &if_.esp);
 
-  // 2. Call the helper function if load succeeded, BEFORE freeing memory
+  /* If load succeeded, push arguments onto the user stack */
   if (success) {
-      push_arguments(file_name, &if_.esp);
+      push_arguments (file_name, &if_.esp);
   }
 
-  // 3. Now it is safe to free the memory
+  /* Free the allocated page */
   palloc_free_page (file_name);
 
-  // 4. If load failed, terminate the thread
   if (!success) {
-    thread_exit ();
+      thread_exit ();
   }
 
+  /* Start the user process */
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -127,6 +132,9 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  /* Temporary delay to prevent Pintos from shutting down 
+     before the child user process gets scheduled to run. */
+  for (volatile int i = 0; i < 500000000; i++);
   return -1;
 }
 
