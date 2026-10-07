@@ -48,6 +48,41 @@ tid_t process_execute (const char *file_name) {
 
 /* A thread function that loads a user process and starts it
    running. */
+// 1. Define the helper function OUTSIDE of start_process
+void push_arguments(char *cmd_line, void **esp) {
+    int argc = 0;
+    char *token, *save_ptr;
+    char *argv[128]; 
+
+    for (token = strtok_r(cmd_line, " ", &save_ptr); token != NULL; 
+        token = strtok_r(NULL, " ", &save_ptr)) {
+        
+        *esp -= strlen(token) + 1; 
+        strlcpy(*esp, token, strlen(token) + 1); 
+        argv[argc++] = *esp; 
+    }
+
+    *esp = (void *)((uint32_t)(*esp) & ~3);
+
+    *esp -= sizeof(char *);
+    *((char **)*esp) = NULL;
+
+    for (int i = argc - 1; i >= 0; i--) {
+        *esp -= sizeof(char *);
+        *((char **)*esp) = argv[i];
+    }
+
+    char **argv_addr = *esp;
+    *esp -= sizeof(char **);
+    *((char ***)*esp) = argv_addr;
+
+    *esp -= sizeof(int);
+    *((int *)*esp) = argc;
+
+    *esp -= sizeof(void *);
+    *((void **)*esp) = NULL;
+}
+
 static void
 start_process (void *file_name_)
 {
@@ -55,64 +90,27 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
-  /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+  
+  // Load the executable
   success = load (file_name, &if_.eip, &if_.esp);
-  // Helper function to push arguments onto the x86 stack
-  void push_arguments(char *cmd_line, void **esp) {
-      int argc = 0;
-      char *token, *save_ptr;
-      char *argv[128]; // Array to hold string addresses (128 is a safe limit)
 
-      // 1. Push actual strings onto the stack (right-to-left conventionally, but order doesn't strictly matter here)
-      for (token = strtok_r(cmd_line, " ", &save_ptr); token != NULL; 
-          token = strtok_r(NULL, " ", &save_ptr)) {
-          
-          *esp -= strlen(token) + 1; // Move stack pointer down (stack grows downward)
-          strlcpy(*esp, token, strlen(token) + 1); // Copy string to stack
-          argv[argc++] = *esp; // Save the address of the string
-      }
-
-      // 2. Word-align the stack pointer (round down to nearest multiple of 4)
-      *esp = (void *)((uint32_t)(*esp) & ~3);
-
-      // 3. Push null sentinel (argv[argc] must be NULL per C standard)
-      *esp -= sizeof(char *);
-      *((char **)*esp) = NULL;
-
-      // 4. Push addresses of the strings (argv elements) in reverse order (right-to-left)
-      for (int i = argc - 1; i >= 0; i--) {
-          *esp -= sizeof(char *);
-          *((char **)*esp) = argv[i];
-      }
-
-      // 5. Push address of argv array (the current stack pointer)
-      char **argv_addr = *esp;
-      *esp -= sizeof(char **);
-      *((char ***)*esp) = argv_addr;
-
-      // 6. Push argc
-      *esp -= sizeof(int);
-      *((int *)*esp) = argc;
-
-      // 7. Push fake return address (required by 80x86 calling convention)
-      *esp -= sizeof(void *);
-      *((void **)*esp) = NULL;
+  // 2. Call the helper function if load succeeded, BEFORE freeing memory
+  if (success) {
+      push_arguments(file_name, &if_.esp);
   }
-  /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
-    thread_exit ();
 
-  /* Start the user process by simulating a return from an
-     interrupt, implemented by intr_exit (in
-     threads/intr-stubs.S).  Because intr_exit takes all of its
-     arguments on the stack in the form of a `struct intr_frame',
-     we just point the stack pointer (%esp) to our stack frame
-     and jump to it. */
+  // 3. Now it is safe to free the memory
+  palloc_free_page (file_name);
+
+  // 4. If load failed, terminate the thread
+  if (!success) {
+    thread_exit ();
+  }
+
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
