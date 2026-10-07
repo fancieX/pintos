@@ -437,6 +437,22 @@ install_page (void *upage, void *kpage, bool writable)
 {
   struct thread *t = thread_current ();
 
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+  if (t->pagedir == NULL) {
+    printf ("DEBUG: install_page: t->pagedir is NULL!\n");
+    return false;
+  }
+
+  void *existing = pagedir_get_page (t->pagedir, upage);
+  if (existing != NULL) {
+    printf ("DEBUG: install_page: upage %p is already mapped to %p!\n", upage, existing);
+    return false;
+  }
+
+  bool ok = pagedir_set_page (t->pagedir, upage, kpage, writable);
+  if (!ok) {
+    printf ("DEBUG: install_page: pagedir_set_page returned false!\n");
+    return false;
+  }
+
+  return true;
 }
